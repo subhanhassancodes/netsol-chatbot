@@ -41,8 +41,10 @@ import difflib
 from typing import Optional, TypedDict
 
 import chromadb
+import numpy as np
 import requests
 import document_store
+import services
 import token_tracker
 from sentence_transformers import SentenceTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -125,6 +127,232 @@ def reset_history(session_id: str) -> None:
     so stale conversation context doesn't bleed into questions about a
     different file."""
     _session_history.pop(session_id, None)
+    _lead_sessions.pop(session_id, None)
+
+
+# ---------- Conversational NETSOL services / lead-generation flow ----------
+# The entire "interested in NETSOL's services" experience lives inside the
+# normal chat — there is no separate form, page, or button-driven menu (see
+# services.py for the catalog/storage/email pieces this flow uses). A
+# per-session state machine tracks where in the conversation each session
+# is; every reply is a short, natural chat message, exactly like any other
+# chatbot turn.
+
+_lead_sessions: dict[str, dict] = {}
+
+# Cheap, deterministic pre-check for "this message expresses interest in
+# NETSOL's services/solutions, or wants to talk to someone" — covers the
+# natural variations called out in the spec, plus common everyday phrasings
+# people actually type ("I want to do these services", "can I get services
+# in AI"). Broad enough to catch real conversational intent, but still
+# anchored on phrase patterns (not lone keywords like "service") so a plain
+# factual question doesn't get hijacked.
+_LEAD_TRIGGER_PATTERNS = [
+    r"\binterested in (using )?(netsol'?s? )?(services?|solutions?)\b",
+    r"\bwant to (use|do|get|try|have)\b.{0,40}\b(service|solution)s?\b",
+    r"\bi want (these|this|that|the) (service|solution)s?\b",
+    r"\bcan i (get|have|use)\b.{0,40}\b(service|solution)s?\b",
+    r"\bi'?d like (these|this|that|the|to (use|get|try))\b.{0,40}\b(service|solution)s?\b",
+    r"\bcan netsol help\b",
+    r"\bwork with netsol\b",
+    r"\blike to use\b.{0,40}\b(solution|service)s?\b",
+    r"\bneed a netsol solution\b",
+    r"\bnetsol solution for my (company|business)\b",
+    r"\bspeak (to|with) (someone|a (netsol )?representative)\b",
+    r"\btalk to a (netsol )?representative\b",
+    r"\bwhat services does netsol (provide|offer)\b",
+    r"\bsign (me )?up\b",
+    r"\bget started\b.{0,40}\b(service|solution)s?\b",
+]
+_LEAD_TRIGGER_RE = re.compile("|".join(_LEAD_TRIGGER_PATTERNS), re.IGNORECASE)
+
+# Smart/curly quotes (common from mobile keyboards and browser
+# autocorrect — e.g. "NETSOL's" typed as "NETSOL’s") would otherwise silently
+# fail every apostrophe-containing pattern above; normalize to a plain
+# apostrophe before matching.
+_SMART_QUOTES_RE = re.compile("[\u2018\u2019\u02bc]")
+
+
+def _looks_like_lead_intent(question: str) -> bool:
+    normalized = _SMART_QUOTES_RE.sub("'", question)
+    return bool(_LEAD_TRIGGER_RE.search(normalized))
+
+
+# Embed the real NETSOL catalog once so a user's free-text service
+# description ("leasing software", "something for automotive finance") can
+# be matched against it with the embedding model already loaded for RAG —
+# no extra dependency, no LLM call needed just to match a service.
+_SERVICE_CATALOG = services.list_services()
+_SERVICE_TEXTS = [f"{s['name']}. {s['description']}" for s in _SERVICE_CATALOG]
+_SERVICE_EMBEDDINGS = _embedding_model.encode(_SERVICE_TEXTS)
+
+
+def _match_service(text: str, min_similarity: float = 0.34) -> Optional[dict]:
+    query_emb = _embedding_model.encode([text])[0]
+    denom = (np.linalg.norm(_SERVICE_EMBEDDINGS, axis=1) * np.linalg.norm(query_emb)) + 1e-9
+    sims = (_SERVICE_EMBEDDINGS @ query_emb) / denom
+    best_idx = int(np.argmax(sims))
+    if sims[best_idx] >= min_similarity:
+        return _SERVICE_CATALOG[best_idx]
+    return None
+
+
+_YES_RE = re.compile(r"^\s*(yes|yeah|yup|sure|please|ok(ay)?|go ahead|sounds good|correct|that'?s right|absolutely|definitely|y)\b", re.IGNORECASE)
+_NO_RE = re.compile(r"^\s*(no|nope|nah|not (now|really)|n)\b", re.IGNORECASE)
+_SKIP_RE = re.compile(r"^\s*(skip|none|n/?a|not applicable|prefer not to say|rather not)\s*\.?\s*$", re.IGNORECASE)
+
+
+def _parse_yes_no(text: str) -> Optional[bool]:
+    t = text.strip()
+    if _YES_RE.match(t):
+        return True
+    if _NO_RE.match(t):
+        return False
+    return None
+
+
+def _is_skip(text: str) -> bool:
+    return bool(_SKIP_RE.match(text.strip()))
+
+
+def _start_lead_flow(session_id: str, question: str) -> str:
+    matched = _match_service(question)
+    state = {
+        "stage": "service",
+        "service_query": question,
+        "matched_service": matched,
+        "requirement": None,
+        "name": None,
+        "email": None,
+        "company": None,
+        "phone": None,
+    }
+    _lead_sessions[session_id] = state
+
+    if matched:
+        state["stage"] = "requirement"
+        return (
+            f"Absolutely — it sounds like you might be interested in {matched['name']}. "
+            "Could you tell me a little about what your organization is looking for?"
+        )
+    return "Absolutely, I'd be happy to help you explore NETSOL's services. What type of NETSOL service are you interested in?"
+
+
+def _build_confirmation_summary(state: dict) -> str:
+    service_label = state["matched_service"]["name"] if state["matched_service"] else state["service_query"]
+    lead_in = f"Just to confirm — you're {state['name']}, reachable at {state['email']}"
+    if state.get("company"):
+        lead_in += f" from {state['company']}"
+    return (
+        f"{lead_in}, you're interested in {service_label}, and your requirement is: "
+        f"\"{state['requirement']}\". A NETSOL representative will follow up with you. "
+        "Does that all look correct?"
+    )
+
+
+def _finalize_lead(state: dict) -> str:
+    service = state["matched_service"] or {"id": "general-inquiry", "name": state["service_query"]}
+    lead = services.create_lead(
+        name=state["name"],
+        email=state["email"],
+        service_id=service["id"],
+        service_name=service["name"],
+        description=state["requirement"],
+        phone=state.get("phone"),
+        company=state.get("company"),
+    )
+
+    lead_result = services.send_lead_notification_email(lead)
+    services.update_email_status(lead["request_id"], lead_email_sent=lead_result.sent)
+    if not lead_result.sent:
+        services.update_email_status(lead["request_id"], email_error=f"notification: {lead_result.error}")
+
+    confirmation_result = services.send_customer_confirmation_email(lead)
+    services.update_email_status(lead["request_id"], confirmation_email_sent=confirmation_result.sent)
+    if not confirmation_result.sent:
+        services.update_email_status(lead["request_id"], email_error=f"confirmation: {confirmation_result.error}")
+
+    reply = (
+        "Thank you! Your request has been submitted successfully. A NETSOL representative "
+        f"will follow up with you soon.\n\nRequest ID: {lead['request_id']}"
+    )
+    if not lead_result.sent or not confirmation_result.sent:
+        reply += "\n\n(Your request is safely saved — a notification email had a hiccup, but the NETSOL team can still see it.)"
+    return reply
+
+
+def _continue_lead_flow(session_id: str, question: str) -> str:
+    state = _lead_sessions[session_id]
+    stage = state["stage"]
+    text = question.strip()
+
+    if stage == "service":
+        matched = _match_service(text)
+        state["matched_service"] = matched
+        state["service_query"] = text
+        state["stage"] = "requirement"
+        if matched:
+            return f"Great — {matched['name']} it is. Could you tell me a little about what your organization is looking for?"
+        return "Got it. Could you tell me a little more about what your organization is looking for?"
+
+    if stage == "requirement":
+        state["requirement"] = text
+        if state.get("editing"):
+            # Correcting the service/requirement after a "no" at final
+            # confirmation — contact details are already on file, so go
+            # straight back to a fresh confirmation instead of re-asking
+            # for name/email/etc. all over again.
+            state["editing"] = False
+            state["stage"] = "final_confirm"
+            return _build_confirmation_summary(state)
+        state["stage"] = "confirm_interest"
+        return (
+            "That sounds like something NETSOL may be able to help with. Would you like to "
+            "submit your requirements to the NETSOL team so someone can follow up with you?"
+        )
+
+    if stage == "confirm_interest":
+        if _parse_yes_no(text) is False:
+            _lead_sessions.pop(session_id, None)
+            return "No problem — happy to help with anything else in the meantime."
+        state["stage"] = "name"
+        return "Great, I'll just need a few details. What's your name?"
+
+    if stage == "name":
+        state["name"] = text
+        state["stage"] = "email"
+        first_name = text.split()[0] if text.split() else text
+        return f"Thanks, {first_name}. What's the best email address to reach you?"
+
+    if stage == "email":
+        if not services.is_valid_email(text):
+            return "That doesn't look like a valid email address — could you double-check it?"
+        state["email"] = text
+        state["stage"] = "company"
+        return "What's your company or organization? (Feel free to say \"skip\" if you'd rather not share.)"
+
+    if stage == "company":
+        state["company"] = None if _is_skip(text) else text
+        state["stage"] = "phone"
+        return "And the best phone number to reach you, if you'd like to share one? (Or say \"skip\".)"
+
+    if stage == "phone":
+        state["phone"] = None if _is_skip(text) else text
+        state["stage"] = "final_confirm"
+        return _build_confirmation_summary(state)
+
+    if stage == "final_confirm":
+        if _parse_yes_no(text) is False:
+            state["stage"] = "service"
+            state["editing"] = True
+            return "No worries — let's fix that. What NETSOL service are you interested in, and what's your requirement?"
+        answer = _finalize_lead(state)
+        _lead_sessions.pop(session_id, None)
+        return answer
+
+    # Safety net — should never be reached.
+    _lead_sessions.pop(session_id, None)
+    return "Let's start over — what NETSOL service are you interested in?"
 
 # Load every stored chunk once, so we can also do a plain literal keyword
 # search as a backstop to vector similarity. Vector search alone can miss a
@@ -660,6 +888,14 @@ def ask_detailed(question: str, session_id: Optional[str] = None) -> dict:
     model guessing at an arbitrary row."""
     history_context = _history_text(session_id)
 
+    # Highest priority: a service-request conversation already in progress
+    # for this session picks up exactly where it left off, regardless of
+    # what the message would otherwise route to.
+    if session_id and session_id in _lead_sessions:
+        answer = _continue_lead_flow(session_id, question)
+        _record_history(session_id, question, answer)
+        return {"route": "LEAD", "answer": answer, "cached": False}
+
     if session_id and document_store.has_csv(session_id):
         csv_data = document_store.gather_csv_answer(session_id, question, history_context=history_context)
         answer = _synthesize_answer(question, csv_data=csv_data, history_context=history_context)
@@ -672,6 +908,15 @@ def ask_detailed(question: str, session_id: Optional[str] = None) -> dict:
             answer = _synthesize_answer(question, document_text=document_text, history_context=history_context)
             _record_history(session_id, question, answer)
             return {"route": "DOCUMENT", "answer": answer, "cached": False}
+
+    # A fresh expression of commercial/service interest starts the
+    # conversational lead flow instead of going through normal RAG/SQL
+    # routing — see the module docstring section above. Needs a session_id
+    # to track multi-turn state.
+    if session_id and _looks_like_lead_intent(question):
+        answer = _start_lead_flow(session_id, question)
+        _record_history(session_id, question, answer)
+        return {"route": "LEAD", "answer": answer, "cached": False}
 
     # The answer cache is keyed by question text only, across all sessions —
     # fine for a fixed factual question, but wrong for anything that could
