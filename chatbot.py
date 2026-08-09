@@ -197,6 +197,27 @@ def _match_service(text: str, min_similarity: float = 0.34) -> Optional[dict]:
     return None
 
 
+def _service_menu_text() -> str:
+    """A natural-language, bulleted rundown of the real NETSOL catalog,
+    grouped by category — shown when someone expresses interest but hasn't
+    named a specific service yet, so they have something concrete to react
+    to instead of a blank "what do you want" prompt. Still plain chat text
+    (the frontend renders "- " lines as a bullet list), not a card menu —
+    the flow stays conversational either way."""
+    by_category: dict[str, list[str]] = {cat: [] for cat in services.CATEGORIES}
+    for s in _SERVICE_CATALOG:
+        by_category.setdefault(s["category"], []).append(s["name"])
+
+    blocks = []
+    for category, names in by_category.items():
+        if not names:
+            continue
+        bullet_lines = "\n".join(f"- {name}" for name in names)
+        blocks.append(f"{category}\n{bullet_lines}")
+
+    return "\n\n".join(blocks)
+
+
 _YES_RE = re.compile(r"^\s*(yes|yeah|yup|sure|please|ok(ay)?|go ahead|sounds good|correct|that'?s right|absolutely|definitely|y)\b", re.IGNORECASE)
 _NO_RE = re.compile(r"^\s*(no|nope|nah|not (now|really)|n)\b", re.IGNORECASE)
 _SKIP_RE = re.compile(r"^\s*(skip|none|n/?a|not applicable|prefer not to say|rather not)\s*\.?\s*$", re.IGNORECASE)
@@ -235,7 +256,11 @@ def _start_lead_flow(session_id: str, question: str) -> str:
             f"Absolutely — it sounds like you might be interested in {matched['name']}. "
             "Could you tell me a little about what your organization is looking for?"
         )
-    return "Absolutely, I'd be happy to help you explore NETSOL's services. What type of NETSOL service are you interested in?"
+    return (
+        "Absolutely, I'd be happy to help you explore NETSOL's services. Here's what we offer:\n\n"
+        f"{_service_menu_text()}\n\n"
+        "Which one are you interested in?"
+    )
 
 
 def _build_confirmation_summary(state: dict) -> str:
@@ -949,3 +974,5 @@ if __name__ == "__main__":
     print(ask_detailed("Who is the founder of NETSOL and who is the highest paid employee?"))
     print("---")
     print(ask_detailed("What's the weather like today?"))
+
+    
