@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai.errors import ServerError
 
-import token_tracker
+import backend.token_tracker as token_tracker
 
 load_dotenv()
 

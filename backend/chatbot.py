@@ -43,14 +43,14 @@ from typing import Optional, TypedDict
 import chromadb
 import numpy as np
 import requests
-import document_store
-import services
-import token_tracker
+import backend.document_store as document_store
+import backend.services as services
+import backend.token_tracker as token_tracker
 from sentence_transformers import SentenceTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 
-from llm_client import client as _client_genai, MODEL_NAME, GEMINI_API_KEY, generate_with_retry as _generate_with_retry
+from backend.llm_client import client as _client_genai, MODEL_NAME, GEMINI_API_KEY, generate_with_retry as _generate_with_retry
 
 
 # ---------- Setup ----------

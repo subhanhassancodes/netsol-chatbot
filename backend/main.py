@@ -21,10 +21,10 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-import document_store
-import services
-import token_tracker
-from chatbot import ask_detailed, check_google_status, reset_history
+import backend.document_store as document_store
+import backend.services as services
+import backend.token_tracker as token_tracker
+from backend.chatbot import ask_detailed, check_google_status, reset_history
 
 logger = logging.getLogger("netsol.leads")
 

@@ -33,7 +33,7 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from llm_client import generate_with_retry
+from backend.llm_client import generate_with_retry
 
 MAX_CHARS = 15000  # keep extracted text at a reasonable size for the LLM's context
 MAX_ROWS_SHOWN = 20  # cap on rows/values shown back from a CSV computation
