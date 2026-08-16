@@ -9,14 +9,20 @@ for every raw call made to Gemini (see token_tracker.py).
 
 import os
 import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai.errors import ServerError
 
-import backend.token_tracker as token_tracker
+import token_tracker
 
-load_dotenv()
+# Pointed explicitly at the project root's .env rather than relying on
+# load_dotenv()'s default search (which looks relative to the current
+# working directory / entry-point script and can miss it depending on how
+# the app was started). .env lives one level up from this file
+# (backend/llm_client.py).
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 MODEL_NAME = "gemini-2.5-flash-lite"

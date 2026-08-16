@@ -11,11 +11,13 @@ What this does:
      office address, and phone numbers live — useful content that was
      previously being discarded)
 2. Chunks all of that text and generates embeddings
-3. Stores everything in a persistent ChromaDB collection (./chroma_db)
-4. Loads the employee JSON export (zeropaper_staging_employee_profiles.json),
+3. Stores everything in a persistent ChromaDB collection (chroma_db/, at
+   the project root)
+4. Loads the employee JSON export (data/zeropaper_staging_employee_profiles.json),
    normalizes every field it contains — scalar and list alike — into
    relational tables (see build_sql_store() for how)
-5. Writes those tables into a SQLite database (netsol_hr.db)
+5. Writes those tables into a SQLite database (netsol_hr.db, at the
+   project root)
 
 Run this once to build your data stores. Re-run it any time you want to
 refresh the website content or the employee JSON changes.
@@ -24,6 +26,7 @@ refresh the website content or the employee JSON changes.
 import json
 import os
 import sqlite3
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import pandas as pd
@@ -36,14 +39,23 @@ from sentence_transformers import SentenceTransformer
 # ---------- Config ----------
 BASE_URL = "https://www.netsolpk.com/"
 ALLOWED_DOMAIN = "www.netsolpk.com"
+
+# All paths resolved relative to this file rather than the current working
+# directory, so `python backend/ingest.py` works the same whether you run
+# it from the project root or from inside backend/. netsol_scraped.json and
+# the employee export live in data/; chroma_db/ and netsol_hr.db live at
+# the project root — both one level up from this file (backend/ingest.py).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DATA_DIR = _PROJECT_ROOT / "data"
+
 # The employee CSV export has been retired in favor of a direct JSON export
 # (a nested, MongoDB-shaped document per employee — see load_employee_records()
 # and build_sql_store() below). This is now the single source of truth for
 # employee data; there is no CSV fallback.
-EMPLOYEE_JSON_PATH = "zeropaper_staging_employee_profiles.json"
-SCRAPED_JSON_PATH = "netsol_scraped.json"  # written fresh each run, kept as a local record
-CHROMA_DB_PATH = "./chroma_db"
-SQLITE_DB_PATH = "netsol_hr.db"
+EMPLOYEE_JSON_PATH = str(_DATA_DIR / "zeropaper_staging_employee_profiles.json")
+SCRAPED_JSON_PATH = str(_DATA_DIR / "netsol_scraped.json")  # written fresh each run, kept as a local record
+CHROMA_DB_PATH = str(_PROJECT_ROOT / "chroma_db")
+SQLITE_DB_PATH = str(_PROJECT_ROOT / "netsol_hr.db")
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
@@ -342,5 +354,3 @@ if __name__ == "__main__":
     build_rag_store()
     build_sql_store()
     print("=== Ingestion complete ===")
-
-    

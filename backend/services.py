@@ -209,9 +209,15 @@ import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
-LEADS_DB_PATH = "netsol_leads.db"
+# Resolved relative to this file, not the current working directory, so it
+# doesn't matter whether the app is started from the project root or from
+# inside backend/ — netsol_leads.db lives at the project root, one level
+# up from this file (backend/services.py).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LEADS_DB_PATH = str(_PROJECT_ROOT / "netsol_leads.db")
 
 _lock = threading.Lock()
 _conn = sqlite3.connect(LEADS_DB_PATH, check_same_thread=False)
@@ -396,7 +402,10 @@ from email.mime.text import MIMEText
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# _PROJECT_ROOT is already defined above (near LEADS_DB_PATH) — reused here
+# so .env resolves the same explicit way regardless of where this module's
+# code runs from.
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env")
 
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))

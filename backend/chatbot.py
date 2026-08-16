@@ -5,8 +5,8 @@ Holds the chatbot logic: RAG retrieval, Text2SQL, CSV analysis, and a
 LangGraph agent that routes each question to the right source(s).
 
 This module reads from the persistent stores built by ingest.py:
-- ./chroma_db      (ChromaDB, website content)
-- ./netsol_hr.db   (SQLite, employee data)
+- <project root>/chroma_db      (ChromaDB, website content)
+- <project root>/netsol_hr.db   (SQLite, employee data)
 
 Architecture:
 - Each node GATHERS raw context relevant to the question (website chunks,
@@ -38,24 +38,30 @@ import re
 import sqlite3
 import time
 import difflib
+from pathlib import Path
 from typing import Optional, TypedDict
 
 import chromadb
 import numpy as np
 import requests
-import backend.document_store as document_store
-import backend.services as services
-import backend.token_tracker as token_tracker
+import document_store
+import services
+import token_tracker
 from sentence_transformers import SentenceTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 
-from backend.llm_client import client as _client_genai, MODEL_NAME, GEMINI_API_KEY, generate_with_retry as _generate_with_retry
+from llm_client import client as _client_genai, MODEL_NAME, GEMINI_API_KEY, generate_with_retry as _generate_with_retry
 
 
 # ---------- Setup ----------
-CHROMA_DB_PATH = "./chroma_db"
-SQLITE_DB_PATH = "netsol_hr.db"
+# Resolved relative to this file rather than the current working directory,
+# so it doesn't matter whether the app is started from the project root,
+# from inside backend/, or via `uvicorn backend.main:api` — chroma_db/ and
+# netsol_hr.db live at the project root, one level up from this file.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CHROMA_DB_PATH = str(_PROJECT_ROOT / "chroma_db")
+SQLITE_DB_PATH = str(_PROJECT_ROOT / "netsol_hr.db")
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 PAKISTAN_DOMAIN = "www.netsolpk.com"
 
@@ -974,5 +980,3 @@ if __name__ == "__main__":
     print(ask_detailed("Who is the founder of NETSOL and who is the highest paid employee?"))
     print("---")
     print(ask_detailed("What's the weather like today?"))
-
-    
