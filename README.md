@@ -2,6 +2,31 @@
 
 An AI assistant built for NETSOL Technologies that answers questions about the company, looks up employee records, reads whatever document or spreadsheet you hand it, and carries a real conversation with potential customers to capture and qualify service leads. No separate admin panel, no forms, no card-based menus bolted onto a chatbot. One chat interface, one model, several different ways of getting an answer depending on what's actually being asked.
 
+## Demo
+
+**The assistant in action**
+
+<!--
+GitHub doesn't render local video files as an inline player from a plain
+path in a repo, a link just downloads the file. To get a real inline
+player, drag netsol-assistant-demo.mp4 into the GitHub web editor while
+editing this file (or into a new issue/PR comment) and GitHub will upload
+it and hand back a `https://github.com/user-attachments/assets/...` URL.
+Paste that URL on its own line below and it'll embed and play inline.
+-->
+
+`assets/netsol-assistant-demo.mp4`
+
+When a service request is submitted, two emails go out automatically: one confirming the request to the customer, and one notifying NETSOL internally.
+
+**Customer confirmation**
+
+![Customer confirmation email](assets/request-user.png)
+
+**Internal NETSOL notification**
+
+![Internal NETSOL lead notification email](assets/request-netsol.png)
+
 ## The problem this solves
 
 Before this existed, someone looking for information about NETSOL had three separate places to check: the public website, an internal employee spreadsheet, and whatever documents happened to be floating around. None of those talk to each other, and none of them can hold a conversation. This assistant sits in front of all three, figures out which source actually has the answer, and when someone shows up looking to become a customer rather than just get information, recognizes that shift and moves into a proper intake conversation instead of pointing them at a contact form.
@@ -95,21 +120,29 @@ No framework on the frontend was a deliberate choice, not an oversight. The inte
 
 ```
 netsol-chatbot/
-├── main.py                FastAPI app: /chat, /upload, /status, /usage
-├── chatbot.py              LangGraph routing agent, RAG + Text2SQL logic,
-│                           conversational lead-qualification flow
-├── ingest.py               Scrapes the site, builds ChromaDB + SQLite
-├── document_store.py       Per-session uploaded file / CSV handling
-├── services.py             NETSOL service catalog, lead storage, email
-├── llm_client.py           Shared Gemini client with retry/backoff
-├── token_tracker.py        Per-request and cumulative usage/cost tracking
-├── index.html               Frontend, chat UI, all styling and JS inline
-├── chroma_db/               Persistent vector store (generated)
-├── netsol_hr.db             Employee data (generated, rebuilt on ingest)
-├── netsol_leads.db           Service-request leads (generated, persistent)
-├── netsol_scraped.json      Raw scraped site text (generated, for reference)
-└── .env                     API keys and SMTP config (not committed)
+├── backend/
+│   ├── main.py                FastAPI app: /chat, /upload, /status, /usage
+│   ├── chatbot.py              LangGraph routing agent, RAG + Text2SQL logic,
+│   │                           conversational lead-qualification flow
+│   ├── ingest.py               Scrapes the site, builds ChromaDB + SQLite
+│   ├── document_store.py       Per-session uploaded file / CSV handling
+│   ├── services.py             NETSOL service catalog, lead storage, email
+│   ├── llm_client.py           Shared Gemini client with retry/backoff
+│   └── token_tracker.py        Per-request and cumulative usage/cost tracking
+├── frontend/
+│   └── index.html               Chat UI, all styling and JS inline
+├── data/
+│   ├── netsol_scraped.json      Raw scraped site text (generated, for reference)
+│   └── zeropaper_staging_employee_profiles.json   Employee data source
+├── assets/                      Screenshots and demo video used in this README
+├── chroma_db/                   Persistent vector store (generated)
+├── netsol_hr.db                 Employee data (generated, rebuilt on ingest)
+├── netsol_leads.db               Service-request leads (generated, persistent)
+├── .env                          API keys and SMTP config (not committed)
+└── .gitignore
 ```
+
+Every path in `backend/` that points at `chroma_db/`, the two `.db` files, `data/`, or `.env` is resolved relative to the file's own location on disk, not the current working directory. That means the app runs the same whether it's started from the project root or from inside `backend/`.
 
 ## Getting it running
 
@@ -134,19 +167,19 @@ SMTP_PASSWORD=your_app_password
 LEAD_NOTIFICATION_EMAIL=subhanhassan999@gmail.com
 ```
 
-Build the data stores (only needs re-running when the site content or the employee export changes):
+Build the data stores (only needs re-running when the site content or the employee export changes), run from the project root:
 
 ```bash
-python ingest.py
+python backend/ingest.py
 ```
 
-Start the server:
+Start the server, also from the project root:
 
 ```bash
-uvicorn main:api
+uvicorn backend.main:api
 ```
 
-Open `index.html` directly in a browser. It talks to `http://127.0.0.1:8000` by default.
+Open `frontend/index.html` directly in a browser. It talks to `http://127.0.0.1:8000` by default.
 
 ## Author
 
