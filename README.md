@@ -6,26 +6,17 @@ An AI assistant built for NETSOL Technologies that answers questions about the c
 
 **The assistant in action**
 
-<!--
-GitHub doesn't render local video files as an inline player from a plain
-path in a repo, a link just downloads the file. To get a real inline
-player, drag netsol-assistant-demo.mp4 into the GitHub web editor while
-editing this file (or into a new issue/PR comment) and GitHub will upload
-it and hand back a `https://github.com/user-attachments/assets/...` URL.
-Paste that URL on its own line below and it'll embed and play inline.
--->
-
-`assets/netsol-assistant-demo.mp4`
+![NETSOL Assistant demo](assets/netsol_assistant_demo.gif)
 
 When a service request is submitted, two emails go out automatically: one confirming the request to the customer, and one notifying NETSOL internally.
 
 **Customer confirmation**
 
-![Customer confirmation email](assets/request-user.png)
+![Customer confirmation email](assets/request_user.png)
 
 **Internal NETSOL notification**
 
-![Internal NETSOL lead notification email](assets/request-netsol.png)
+![Internal NETSOL lead notification email](assets/request_netsol.png)
 
 ## The problem this solves
 
@@ -184,3 +175,4 @@ Open `frontend/index.html` directly in a browser. It talks to `http://127.0.0.1:
 ## Author
 
 Syed Subhan Hassan ([@subhanhassancodes](https://github.com/subhanhassancodes))
+
